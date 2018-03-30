@@ -1,0 +1,368 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25" zv="Cache for UNIX (Red Hat Enterprise Linux for x86-64) 2016.2.2 (Build 853_0_17364U)" ts="2018-03-30 18:46:22">
+<Class name="SecurityPlus.BL.REST.UserManagement">
+<Description>
+Management of Users in Security Plus
+Copyright (c) 2018 General Electric Company
+VERSION: 7-0 - BColes</Description>
+<Super>%CSP.REST</Super>
+<TimeChanged>64714,65814.763335</TimeChanged>
+<TimeCreated>64703,57975.879949</TimeCreated>
+
+<XData name="UrlMap">
+<XMLNamespace>http://www.intersystems.com/urlmap</XMLNamespace>
+<Data><![CDATA[
+<Routes>
+<Route Url="/user/:IDENTIFIER" Method="GET" Call="loadUser"/>
+<Route Url="/user/activate/:IDENTIFIER" Method="PUT" Call="activateUser"/>
+<Route Url="/user/deactivate/:IDENTIFIER" Method="PUT" Call="deactivateUser"/>
+</Routes>
+]]></Data>
+</XData>
+
+<Method name="OnPreDispatch">
+<Description>
+This method is called prior to dispatching the REST service
+Check credentials, set content type and initialize json object for output</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pUrl:%String,pMethod:%String,pContinue:%Boolean</FormalSpec>
+<PublicList>retObj,SECID</PublicList>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	try {
+		set %response.ContentType="application/json"
+		set retObj={}
+		set result=0
+	
+		//check to see if web service is enabled
+		if ('##class(Dict.WebService).isWebServiceEnabled("SecPlus")) {
+			set result="-1|Web Service is not enabled"
+		}
+		//if web service is enabled, validate credentials
+		if result=0 set result=##class(DBMS.BL.REST.Tools).getSECID(%request,.SECID)
+	
+		//if there was an error, quit and notify user
+    	if result<1 {
+	    	set pContinue=0  //if there was an error, do not proceed with dispatch
+	    	set retObj.Error=$piece(result,"|",2)
+	    	write retObj.%ToJSON()
+		}
+	}
+	catch {
+		do NOHALT^ZIDET
+		set retObj.Error=$zerror
+		write retObj.%ToJSON()
+	}
+	quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="loadUser">
+<Description>
+Return Sec User information in JSON format</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>User:%String</FormalSpec>
+<PublicList>retObj,SECID</PublicList>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	try {
+		#dim oUserData As SecurityPlus.DT.Ens.User
+
+		set oUserData=##class(SecurityPlus.DT.Ens.User).%New()
+		set oUserData.Username=User
+		set oUser = ##class(SecurityPlus.Usr).%OpenId(User)
+		if '$IsObject(oUser) {
+			set retObj.Error="Missing or Invalid Security Plus User"
+			write retObj.%ToJSON()
+		}
+		else {
+			do oUserData.PersistentToDt(oUser)
+			set retObj=##class(DBMS.BL.REST.Tools).createJSON(oUserData)
+			write retObj.%ToJSON()
+		}
+	}
+	catch {
+		do NOHALT^ZIDET
+		set retObj.Error=$zerror
+		write retObj.%ToJSON()
+	}
+	do LOGOUT^ZSECAPI()
+	quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="deactivateUser">
+<Description>
+Deactivate a User</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>User:%String</FormalSpec>
+<PublicList>retObj,SECID</PublicList>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim oUserSummary as SecurityPlus.DT.Ens.UserSummary
+
+	try {
+		set response = ##Class(SecurityPlus.BL.UserManagement).StatusUpdate(User,"Deactivate",.error)
+		if response'=1 {
+			set retObj.Error=error
+		}
+		else {
+			set oUserSummary=##class(SecurityPlus.DT.Ens.UserSummary).%New()
+			set oUser = ##class(SecurityPlus.Usr).%OpenId(User)
+			do oUserSummary.PersistentToDt(oUser)
+			set retObj=##class(DBMS.BL.REST.Tools).createJSON(oUserSummary)
+		}
+		write retObj.%ToJSON()
+	}
+	catch exceptionvar {
+		do NOHALT^ZIDET
+		set retObj.Error=$zerror
+		write retObj.%ToJSON()
+	}
+	do LOGOUT^ZSECAPI()
+	quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="activateUser">
+<Description>
+Activate a User</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>User:%String</FormalSpec>
+<PublicList>retObj,SECID</PublicList>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim oUserSummary as SecurityPlus.DT.Ens.UserSummary
+
+	try	{
+		set response = ##Class(SecurityPlus.BL.UserManagement).StatusUpdate(User,"Activate",.error)
+		if (response'=1) {
+			set retObj.Error=error
+		}
+		else {
+			set oUserSummary=##class(SecurityPlus.DT.Ens.UserSummary).%New()
+			set oUser = ##class(SecurityPlus.Usr).%OpenId(User)
+			do oUserSummary.PersistentToDt(oUser)
+			set retObj=##class(DBMS.BL.REST.Tools).createJSON(oUserSummary)
+		}
+
+		write retObj.%ToJSON()
+	}
+	catch exceptionvar {
+		do NOHALT^ZIDET
+		set retObj.Error=$zerror
+		write retObj.%ToJSON()
+	}
+	do LOGOUT^ZSECAPI()
+	quit $$$OK
+]]></Implementation>
+</Method>
+</Class>
+
+
+<Class name="SecurityPlus.BL.UserManagement">
+<Description>
+User Management - SecPlus activate and deactivate users
+Copyright (c) 2018 General Electric Company
+VERSION: 7-0 - BColes</Description>
+<Super>%RegisteredObject</Super>
+<TimeChanged>64719,60306.911405</TimeChanged>
+<TimeCreated>64713,67946.504523</TimeCreated>
+
+<Method name="StatusUpdate">
+<Description>
+Change the status of a User - either activate or deactivate</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[User:%String,Status:%String,&error:%String]]></FormalSpec>
+<PublicList>SECID</PublicList>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	if ((Status '= "Activate")&&(Status '= "Deactivate")) {
+		set error = "Incorrect status - Activate or Deactivate"
+		quit -1
+	}
+	if ((User="")||('$data(^ZSECUSER(User)))) {
+		set error = "Invalid security plus user"
+		quit -1
+	}
+	set Operator = $piece(SECID,"^",1)
+	if ((Operator = "") || ('$data(^ZSECUSER(Operator)))) {
+		set error = "Invalid security plus user"
+		quit -1
+	}
+	if Operator = User {
+		set error = "You cannot change your own status"
+		quit -1
+	}
+	///check to see if the person changing the status has rights to do so
+	set DEFUCI = $ZNSPACE
+	if '$D(^ZSECUSER(Operator,100,"ZSEC0",DEFUCI,"SI")) {
+		set error = "No Security Plus SI data (privileges) found in this UCI for this user"
+		quit -1
+	}
+	if ((Status = "Activate")&&('$G(^ZSECUSER(User,100,"ZSEC0",DEFUCI,"SI",15)))) {
+		set error = "Insufficient privilege to change status"
+		quit -1
+	}
+	if ((Status = "Deactivate")&&('$G(^ZSECUSER(User,100,"ZSEC0",DEFUCI,"SI",16)))) {
+		set error = "Insufficient privilege to change status"
+		quit -1
+	}
+	set INITS=User //old code uses INITS
+	if '$$APMGRCHK^ZSECUTIL(Operator, User) {
+		set error = "You may not activate/deactivate this user: "_User_" has access to applications that you do not manage."
+		quit -1
+	}
+	set OLDACT=$P(^ZSECUSER(User,0),"^",17)    //Save previous state
+	set OldStatus=$S(OLDACT:"Deactivated",1:"Activated")
+	set NewStatus = Status_"d"
+	set NEWACT = $select(Status="Activate":0,1:1)
+	if (NEWACT=OLDACT) {
+		set error="Status is already set to "_OldStatus
+		quit -1	
+	}
+	set response=0
+	set $P(^ZSECUSER(User,0),"^",17)=NEWACT
+	set $P(^ZSECUSER(User,0),"^",5,6)=$P(SECID,"^",1)_"^"_+$H
+	//Call activate/deactivate routine for each application user has access to
+	set ADAPP = ""
+	for {
+		set ADAPP=$order(^ZSECUSER(User,99,ADAPP))
+		quit:ADAPP=""
+		set INTAPP=$P(^ZSECAC("MENU_NAME",ADAPP),"^",1)
+		set APPUCI=$P(^ZSECAC("MENU_NAME",ADAPP),"^",2)
+		set ADRTN=$G(^ZSECAC(INTAPP,APPUCI,"ACT_DEACT_RTN"))
+		if ADRTN'="" D @ADRTN
+	}
+	// Make entry in audit log...
+	D ^%ZVAR  //need SYSTYPE array
+	set response = $$^ZSECAUDT($H,$P(SECID,"^",1),"EDIT",7,"*",INITS,17,OldStatus_"^"_NewStatus)
+	if +response =0 {
+		set error = $piece(response,"^",2)
+		quit -1
+	}
+	quit $$$OK
+]]></Implementation>
+</Method>
+</Class>
+
+
+<Class name="UnitTest.SecurityPlus.BL.UserManagement">
+<Description>
+Copyright (c) 2018 General Electric Company
+VERSION: 7-0 - BColes</Description>
+<ProcedureBlock>1</ProcedureBlock>
+<Super>UnitTest.GEHC.TestCase</Super>
+<TimeChanged>64719,67594.04352</TimeChanged>
+<TimeCreated>64718,55325.059148</TimeCreated>
+
+<Method name="OnAfterAllTests">
+<Description><![CDATA[
+Run by <B>RunTest</B> once after all test methods in the test class are run. Can be used to tear down a test environment that was set up by <B>OnBeforeAllTests</B>. ]]></Description>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+    //Rollback transactions that were committed to the database
+    if ($TLEVEL>0) { TROLLBACK }
+    quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="OnBeforeAllTests">
+<Description><![CDATA[
+Run by <B>RunTest</B> once before any test methods</a> in the test class are run. Can be used to set up a
+test environment that will be later cleaned up by <B>OnAfterAllTests</B>.
+Can also be used to set up extended syntax needed by UnitTest methods.
+Extended syntax variables will need to be added to public list for the UnitTest methods where they are needed.]]></Description>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+    TSTART
+    quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="TestStatusUpdate">
+<Description>
+Test status change</Description>
+<PublicList>SECID</PublicList>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	//Invalid Status
+	new SECID
+	set SECID="GEHC"
+	set User=$order(^ZSECUSER(""))
+	quit:User=""
+	set status = "Invalid"
+	set results=##Class(SecurityPlus.BL.UserManagement).StatusUpdate(User,status,.error)
+    do ..AssertEquals(error,"Incorrect status - Activate or Deactivate","Incorrect status - Activate or Deactivate")
+	
+	//Invalid User and No User
+	set SECID="GEHC"
+	set User="This is an invalid User"
+	set status="Activate"
+	set results=##Class(SecurityPlus.BL.UserManagement).StatusUpdate(User,status,.error)
+    do ..AssertEquals(error,"Invalid security plus user","Invalid security plus user (User invalid)")
+    set User=""
+    set results=##Class(SecurityPlus.BL.UserManagement).StatusUpdate(User,status,.error)
+    do ..AssertEquals(error,"Invalid security plus user","Invalid security plus user (User null)")
+	
+	//Invalid Operator and No Operator
+	set SECID="Invalid"
+	set User=$order(^ZSECUSER(""))
+	quit:User=""
+	set status = "Activate"
+	set results=##Class(SecurityPlus.BL.UserManagement).StatusUpdate(User,status,.error)
+    do ..AssertEquals(error,"Invalid security plus user","Invalid security plus user (Operator invalid)")
+    set SECID=""
+    set results=##Class(SecurityPlus.BL.UserManagement).StatusUpdate(User,status,.error)
+    do ..AssertEquals(error,"Invalid security plus user","Invalid security plus user (Operator null)")
+    
+    //User and operator the same
+    set SECID="GEHC"
+	set User=SECID
+	set status = "Activate"
+	set results=##Class(SecurityPlus.BL.UserManagement).StatusUpdate(User,status,.error)
+    do ..AssertEquals(error,"You cannot change your own status","You cannot change your own status")
+    
+    //Success case
+	//new SECID
+	//set SECID="GEHC"
+	//set User=$order(^ZSECUSER(""))
+	//quit:User=""
+	//if (+$piece(^ZSECUSER(User,0),"^",17)=1) {
+	//	set status="Activate"
+	//	set newStatus="Deactivated"
+	//}
+	//else {
+	//	set status="Deactivate"
+	//	set newStatus="Activated"
+	//}
+	//set results=##Class(SecurityPlus.BL.UserManagement).StatusUpdate(User,status,.error)
+    //do ..AssertEquals(results,1,"Status changed to "_newStatus)
+]]></Implementation>
+</Method>
+
+<Method name="TestStatusUpdateSuccess">
+<Description>
+Test invalid status</Description>
+<PublicList>SECID</PublicList>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	//Success case
+	//new SECID
+	//set SECID="GEHC"
+	//set User=$order(^ZSECUSER(""))
+	//quit:User=""
+	//if (+$piece(^ZSECUSER(User,0),"^",17)=1) {
+	//	set status="Activate"
+	//	set newStatus="Deactivated"
+	//}
+	//else {
+	//	set status="Deactivate"
+	//	set newStatus="Activated"
+	//}
+	//set results=##Class(SecurityPlus.BL.UserManagement).StatusUpdate(User,status,.error)
+    //do ..AssertEquals(results,1,"Status changed to "_newStatus)
+]]></Implementation>
+</Method>
+</Class>
+</Export>
